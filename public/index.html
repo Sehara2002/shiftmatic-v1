@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Vehicle Tracker - OpenStreetMap</title>
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <style>
+    body { margin: 0; font-family: Arial, sans-serif; }
+    #top { padding: 10px; background:#f6f6f6; border-bottom:1px solid #ddd; display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+    #map { height: calc(100vh - 60px); }
+    .pill { padding: 6px 10px; border: 1px solid #ddd; background:#fff; border-radius: 999px; font-size: 13px; }
+    button { padding: 8px 12px; border-radius: 8px; border: 1px solid #333; background: #fff; cursor:pointer; }
+    input { padding: 8px 10px; border: 1px solid #bbb; border-radius: 8px; }
+  </style>
+</head>
+
+<body>
+  <div id="top">
+    <div class="pill"><b>Status:</b> <span id="status">Starting...</span></div>
+    <div class="pill"><b>Lat:</b> <span id="lat">-</span></div>
+    <div class="pill"><b>Lon:</b> <span id="lon">-</span></div>
+    <div class="pill"><b>Age(s):</b> <span id="age">-</span></div>
+
+    <input id="device" value="ESP32-001" />
+    <button id="setDevice">Set Device</button>
+
+    <button id="drawPath">Draw Full Path</button>
+    <button id="clearPath">Clear Path</button>
+  </div>
+
+  <div id="map"></div>
+
+  <script>
+    // ✅ If server is same origin, keep empty:
+    const BASE_URL = ""; // "" means same server (best)
+
+    let DEVICE_ID = "ESP32-001";
+
+    const elStatus = document.getElementById("status");
+    const elLat = document.getElementById("lat");
+    const elLon = document.getElementById("lon");
+    const elAge = document.getElementById("age");
+    const elDevice = document.getElementById("device");
+
+    const map = L.map("map").setView([6.9271, 79.8612], 13);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 }).addTo(map);
+
+    let marker = L.marker([6.9271, 79.8612]).addTo(map);
+    let poly = null;
+
+    function setStatus(s) { elStatus.textContent = s; }
+
+    async function fetchLatest() {
+      try {
+        const res = await fetch(`${BASE_URL}/api/latest?deviceId=${encodeURIComponent(DEVICE_ID)}`, { cache: "no-store" });
+        if (!res.ok) { setStatus("No data"); return; }
+
+        const data = await res.json();
+        const latest = data.latest;
+
+        elLat.textContent = Number(latest.lat).toFixed(6);
+        elLon.textContent = Number(latest.lon).toFixed(6);
+        elAge.textContent = data.ageSeconds ?? "-";
+
+        marker.setLatLng([latest.lat, latest.lon]);
+        setStatus("Live ✅");
+      } catch (e) {
+        setStatus("Fetch error ❌");
+      }
+    }
+
+    async function drawPath() {
+      setStatus("Loading path...");
+      try {
+        const res = await fetch(`${BASE_URL}/api/history?deviceId=${encodeURIComponent(DEVICE_ID)}&limit=5000`, { cache: "no-store" });
+        if (!res.ok) { setStatus("History error"); return; }
+
+        const data = await res.json();
+        const points = data.points || [];
+        if (points.length < 2) { setStatus("Not enough points"); return; }
+
+        const latlngs = points.map(p => [Number(p.lat), Number(p.lon)]).filter(x => Number.isFinite(x[0]) && Number.isFinite(x[1]));
+
+        if (poly) map.removeLayer(poly);
+        poly = L.polyline(latlngs, { weight: 4 }).addTo(map);
+
+        map.fitBounds(poly.getBounds(), { padding: [20, 20] });
+        setStatus(`Path drawn ✅ (${latlngs.length})`);
+      } catch (e) {
+        setStatus("Path fetch error ❌");
+      }
+    }
+
+    function clearPath() {
+      if (poly) { map.removeLayer(poly); poly = null; }
+      setStatus("Cleared");
+    }
+
+    document.getElementById("drawPath").onclick = drawPath;
+    document.getElementById("clearPath").onclick = clearPath;
+
+    document.getElementById("setDevice").onclick = () => {
+      DEVICE_ID = elDevice.value.trim() || DEVICE_ID;
+      setStatus(`Device = ${DEVICE_ID}`);
+    };
+
+    // poll every second
+    fetchLatest();
+    setInterval(fetchLatest, 1000);
+  </script>
+</body>
+</html>
