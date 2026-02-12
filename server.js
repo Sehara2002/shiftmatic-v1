@@ -1,6 +1,7 @@
 const express = require("express");
 const cors = require("cors");
 const path = require("path");
+const mqtt = require("mqtt");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -21,14 +22,11 @@ app.use(express.json({ limit: "50kb" }));
 app.use((req, res, next) => {
   const start = Date.now();
 
-  // When response finishes, log final status + timing
   res.on("finish", () => {
     const ms = Date.now() - start;
-
     const iso = new Date().toISOString();
     const local = new Date().toLocaleString();
-
-    const url = req.originalUrl; // includes query string
+    const url = req.originalUrl;
 
     console.log(
       `[${iso}] [${local}] ${req.method} ${url} -> ${res.statusCode} (${ms}ms)`
@@ -49,6 +47,63 @@ function prune() {
   if (store.length > MAX_POINTS) store.splice(0, store.length - MAX_POINTS);
 }
 
+// =====================================================
+// =============== MQTT SUBSCRIBER SECTION ==============
+// =====================================================
+// Public broker (testing)
+const MQTT_BROKER = "mqtt://broker.hivemq.com:1883";
+const MQTT_TOPIC = "shiftmatic/test/esp32-001/telemetry"; // MUST match ESP
+
+const mqttClient = mqtt.connect(MQTT_BROKER, {
+  keepalive: 30,
+  reconnectPeriod: 2000,
+  connectTimeout: 10000,
+});
+
+mqttClient.on("connect", () => {
+  console.log("✅ MQTT connected:", MQTT_BROKER);
+  mqttClient.subscribe(MQTT_TOPIC, { qos: 0 }, (err) => {
+    if (err) console.error("❌ MQTT subscribe error:", err);
+    else console.log("✅ MQTT subscribed:", MQTT_TOPIC);
+  });
+});
+
+mqttClient.on("error", (e) => {
+  console.error("❌ MQTT error:", e.message);
+});
+
+mqttClient.on("message", (topic, message) => {
+  const text = message.toString();
+
+  try {
+    const data = JSON.parse(text);
+    const { deviceId, lat, lon, ts } = data || {};
+
+    const latNum = Number(lat);
+    const lonNum = Number(lon);
+
+    if (!deviceId) return;
+    if (!Number.isFinite(latNum) || !Number.isFinite(lonNum)) return;
+
+    const entry = {
+      deviceId: String(deviceId),
+      lat: latNum,
+      lon: lonNum,
+      ts: Number(ts) || Date.now(),   // device timestamp (optional)
+      serverTs: Date.now(),           // server receive time
+      iso: new Date().toISOString(),  // readable
+      via: "MQTT",
+    };
+
+    store.push(entry);
+    prune();
+
+    console.log("📩 MQTT TELEMETRY:", entry);
+  } catch (e) {
+    console.error("❌ MQTT bad JSON:", text);
+  }
+});
+
 // ===== Endpoints =====
 
 // Health
@@ -56,11 +111,10 @@ app.get("/api/health", (req, res) => {
   res.json({ ok: true, status: "UP", now: Date.now() });
 });
 
-// Receive telemetry
+// Receive telemetry via HTTP (optional — still works)
 app.post("/api/telemetry", (req, res) => {
   const { deviceId, lat, lon, ts } = req.body || {};
 
-  // Log payload with timestamp (for your debugging)
   console.log("   TELEMETRY BODY:", {
     deviceId,
     lat,
@@ -86,15 +140,15 @@ app.post("/api/telemetry", (req, res) => {
     deviceId: String(deviceId),
     lat: latNum,
     lon: lonNum,
-    ts: Number(ts) || Date.now(), // device timestamp (optional)
-    serverTs: Date.now(), // server receive time
-    iso: new Date().toISOString(), // readable timestamp
+    ts: Number(ts) || Date.now(),
+    serverTs: Date.now(),
+    iso: new Date().toISOString(),
+    via: "HTTP",
   };
 
   store.push(entry);
   prune();
 
-  // short response (good for SIM800)
   return res.json({ ok: true, received: entry });
 });
 
@@ -140,4 +194,5 @@ app.get("/api/history", (req, res) => {
 app.listen(PORT, () => {
   console.log(`✅ Express tracker running on http://localhost:${PORT}`);
   console.log(`✅ Map UI: http://localhost:${PORT}/`);
+  console.log(`✅ Render URL: (your live) https://shiftmatic-v1.onrender.com/`);
 });
