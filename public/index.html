@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>Vehicle Tracker - OpenStreetMap</title>
+  <title>Vehicle Tracker - Sessions</title>
 
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -11,10 +11,10 @@
   <style>
     body { margin: 0; font-family: Arial, sans-serif; }
     #top { padding: 10px; background:#f6f6f6; border-bottom:1px solid #ddd; display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
-    #map { height: calc(100vh - 60px); }
+    #map { height: calc(100vh - 80px); }
     .pill { padding: 6px 10px; border: 1px solid #ddd; background:#fff; border-radius: 999px; font-size: 13px; }
     button { padding: 8px 12px; border-radius: 8px; border: 1px solid #333; background: #fff; cursor:pointer; }
-    input { padding: 8px 10px; border: 1px solid #bbb; border-radius: 8px; }
+    input, select { padding: 8px 10px; border: 1px solid #bbb; border-radius: 8px; }
   </style>
 </head>
 
@@ -28,23 +28,31 @@
     <input id="device" value="ESP32-001" />
     <button id="setDevice">Set Device</button>
 
-    <button id="drawPath">Draw Full Path</button>
+    <button id="loadSessions">Load Sessions</button>
+    <button id="startSession">Start Session</button>
+    <button id="stopSession">Stop Session</button>
+
+    <select id="sessionSelect" style="min-width:280px">
+      <option value="">(select a session)</option>
+    </select>
+
+    <button id="drawPath">Draw Selected Session</button>
     <button id="clearPath">Clear Path</button>
   </div>
 
   <div id="map"></div>
 
   <script>
-    // ✅ If server is same origin, keep empty:
-    const BASE_URL = ""; // "" means same server (best)
-
+    const BASE_URL = ""; // same origin
     let DEVICE_ID = "ESP32-001";
+    let ACTIVE_SESSION_ID = null;
 
     const elStatus = document.getElementById("status");
     const elLat = document.getElementById("lat");
     const elLon = document.getElementById("lon");
     const elAge = document.getElementById("age");
     const elDevice = document.getElementById("device");
+    const elSessionSelect = document.getElementById("sessionSelect");
 
     const map = L.map("map").setView([6.9271, 79.8612], 13);
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 }).addTo(map);
@@ -67,29 +75,105 @@
         elAge.textContent = data.ageSeconds ?? "-";
 
         marker.setLatLng([latest.lat, latest.lon]);
-        setStatus("Live ✅");
+        setStatus(`Live ✅ (sid=${latest.session_id ?? "-"})`);
       } catch (e) {
         setStatus("Fetch error ❌");
       }
     }
 
-    async function drawPath() {
-      setStatus("Loading path...");
+    async function loadSessions() {
+      setStatus("Loading sessions...");
+      elSessionSelect.innerHTML = `<option value="">(select a session)</option>`;
+
       try {
-        const res = await fetch(`${BASE_URL}/api/history?deviceId=${encodeURIComponent(DEVICE_ID)}&limit=5000`, { cache: "no-store" });
+        const res = await fetch(`${BASE_URL}/api/sessions?deviceId=${encodeURIComponent(DEVICE_ID)}`, { cache: "no-store" });
+        if (!res.ok) { setStatus("Session load error"); return; }
+
+        const data = await res.json();
+        ACTIVE_SESSION_ID = data.activeSessionId;
+
+        const sessions = data.sessions || [];
+        for (const s of sessions) {
+          const opt = document.createElement("option");
+          opt.value = s.id;
+          const start = new Date(s.started_at).toLocaleString();
+          const end = s.ended_at ? new Date(s.ended_at).toLocaleString() : "ACTIVE";
+          opt.textContent = `#${s.id} | ${start} -> ${end}${s.is_active ? " ✅" : ""}`;
+          elSessionSelect.appendChild(opt);
+        }
+
+        if (ACTIVE_SESSION_ID) {
+          setStatus(`Sessions loaded ✅ (active #${ACTIVE_SESSION_ID})`);
+        } else {
+          setStatus(`Sessions loaded ✅ (no active)`);
+        }
+      } catch (e) {
+        setStatus("Session fetch error ❌");
+      }
+    }
+
+    async function startSession() {
+      setStatus("Starting session...");
+      try {
+        const res = await fetch(`${BASE_URL}/api/sessions/start`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ deviceId: DEVICE_ID, title: null })
+        });
+
+        const data = await res.json();
+        if (!res.ok) { setStatus(data.error || "Start failed"); return; }
+
+        ACTIVE_SESSION_ID = data.session.id;
+        setStatus(`Session started ✅ (#${ACTIVE_SESSION_ID}) - device commanded`);
+        await loadSessions();
+      } catch (e) {
+        setStatus("Start error ❌");
+      }
+    }
+
+    async function stopSession() {
+      setStatus("Stopping session...");
+      try {
+        const res = await fetch(`${BASE_URL}/api/sessions/stop`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ deviceId: DEVICE_ID })
+        });
+
+        const data = await res.json();
+        if (!res.ok) { setStatus(data.error || "Stop failed"); return; }
+
+        ACTIVE_SESSION_ID = null;
+        setStatus(`Session stopped ✅ (device commanded)`);
+        await loadSessions();
+      } catch (e) {
+        setStatus("Stop error ❌");
+      }
+    }
+
+    async function drawSelectedSession() {
+      const sid = Number(elSessionSelect.value || 0);
+      if (!sid) { setStatus("Select a session first"); return; }
+
+      setStatus(`Loading session #${sid}...`);
+      try {
+        const res = await fetch(`${BASE_URL}/api/session-history?sessionId=${sid}&limit=20000`, { cache: "no-store" });
         if (!res.ok) { setStatus("History error"); return; }
 
         const data = await res.json();
         const points = data.points || [];
         if (points.length < 2) { setStatus("Not enough points"); return; }
 
-        const latlngs = points.map(p => [Number(p.lat), Number(p.lon)]).filter(x => Number.isFinite(x[0]) && Number.isFinite(x[1]));
+        const latlngs = points
+          .map(p => [Number(p.lat), Number(p.lon)])
+          .filter(x => Number.isFinite(x[0]) && Number.isFinite(x[1]));
 
         if (poly) map.removeLayer(poly);
         poly = L.polyline(latlngs, { weight: 4 }).addTo(map);
 
         map.fitBounds(poly.getBounds(), { padding: [20, 20] });
-        setStatus(`Path drawn ✅ (${latlngs.length})`);
+        setStatus(`Path drawn ✅ (#${sid}, ${latlngs.length} pts)`);
       } catch (e) {
         setStatus("Path fetch error ❌");
       }
@@ -100,16 +184,22 @@
       setStatus("Cleared");
     }
 
-    document.getElementById("drawPath").onclick = drawPath;
-    document.getElementById("clearPath").onclick = clearPath;
-
-    document.getElementById("setDevice").onclick = () => {
+    document.getElementById("setDevice").onclick = async () => {
       DEVICE_ID = elDevice.value.trim() || DEVICE_ID;
       setStatus(`Device = ${DEVICE_ID}`);
+      await loadSessions();
     };
 
-    // poll every second
+    document.getElementById("loadSessions").onclick = loadSessions;
+    document.getElementById("startSession").onclick = startSession;
+    document.getElementById("stopSession").onclick = stopSession;
+
+    document.getElementById("drawPath").onclick = drawSelectedSession;
+    document.getElementById("clearPath").onclick = clearPath;
+
+    // Live polling
     fetchLatest();
+    loadSessions();
     setInterval(fetchLatest, 1000);
   </script>
 </body>
