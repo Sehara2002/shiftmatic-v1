@@ -5,9 +5,6 @@
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title>Vehicle Tracker - Sessions</title>
 
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-
   <style>
     body { margin: 0; font-family: Arial, sans-serif; }
     #top { padding: 10px; background:#f6f6f6; border-bottom:1px solid #ddd; display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
@@ -42,6 +39,9 @@
 
   <div id="map"></div>
 
+  <!-- Loads window.__CONFIG__ = { GOOGLE_MAP_API_KEY: "..." } -->
+  <script src="/config.js"></script>
+
   <script>
     const BASE_URL = ""; // same origin
     let DEVICE_ID = "ESP32-001";
@@ -54,13 +54,85 @@
     const elDevice = document.getElementById("device");
     const elSessionSelect = document.getElementById("sessionSelect");
 
-    const map = L.map("map").setView([6.9271, 79.8612], 13);
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 }).addTo(map);
-
-    let marker = L.marker([6.9271, 79.8612]).addTo(map);
-    let poly = null;
-
     function setStatus(s) { elStatus.textContent = s; }
+
+    // ===================== GOOGLE MAPS =====================
+    let map, marker, polyline;
+
+    function loadGoogleMaps() {
+      return new Promise((resolve, reject) => {
+        if (window.google && window.google.maps) return resolve();
+
+        const key = (window.__CONFIG__ && window.__CONFIG__.GOOGLE_MAP_API_KEY) || "";
+        if (!key) return reject(new Error("Missing GOOGLE_MAP_API_KEY"));
+
+        const script = document.createElement("script");
+        script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}`;
+        script.async = true;
+        script.defer = true;
+        script.onload = () => resolve();
+        script.onerror = () => reject(new Error("Failed to load Google Maps script"));
+        document.head.appendChild(script);
+      });
+    }
+
+    function initMap() {
+      const startLatLng = { lat: 6.9271, lng: 79.8612 };
+
+      map = new google.maps.Map(document.getElementById("map"), {
+        center: startLatLng,
+        zoom: 13,
+        mapTypeId: "roadmap",
+      });
+
+      marker = new google.maps.Marker({
+        position: startLatLng,
+        map,
+        title: "Live Position",
+      });
+
+      polyline = null;
+    }
+
+    function setMarker(lat, lon) {
+      if (!map || !marker) return;
+      const pos = { lat: Number(lat), lng: Number(lon) };
+      marker.setPosition(pos);
+      // Optional: keep the marker in view without constantly recentering
+      // map.panTo(pos);
+    }
+
+    function clearPath() {
+      if (polyline) {
+        polyline.setMap(null);
+        polyline = null;
+      }
+      setStatus("Cleared");
+    }
+
+    function drawPath(latlngs) {
+      if (!map) return;
+
+      if (polyline) {
+        polyline.setMap(null);
+        polyline = null;
+      }
+
+      polyline = new google.maps.Polyline({
+        path: latlngs, // [{lat, lng}, ...]
+        geodesic: true,
+        strokeOpacity: 1.0,
+        strokeWeight: 4,
+      });
+
+      polyline.setMap(map);
+
+      // Fit bounds
+      const bounds = new google.maps.LatLngBounds();
+      for (const p of latlngs) bounds.extend(p);
+      map.fitBounds(bounds, 20); // padding-ish
+    }
+    // ======================================================
 
     async function fetchLatest() {
       try {
@@ -74,7 +146,7 @@
         elLon.textContent = Number(latest.lon).toFixed(6);
         elAge.textContent = data.ageSeconds ?? "-";
 
-        marker.setLatLng([latest.lat, latest.lon]);
+        setMarker(latest.lat, latest.lon);
         setStatus(`Live ✅ (sid=${latest.session_id ?? "-"})`);
       } catch (e) {
         setStatus("Fetch error ❌");
@@ -102,11 +174,8 @@
           elSessionSelect.appendChild(opt);
         }
 
-        if (ACTIVE_SESSION_ID) {
-          setStatus(`Sessions loaded ✅ (active #${ACTIVE_SESSION_ID})`);
-        } else {
-          setStatus(`Sessions loaded ✅ (no active)`);
-        }
+        if (ACTIVE_SESSION_ID) setStatus(`Sessions loaded ✅ (active #${ACTIVE_SESSION_ID})`);
+        else setStatus(`Sessions loaded ✅ (no active)`);
       } catch (e) {
         setStatus("Session fetch error ❌");
       }
@@ -166,22 +235,16 @@
         if (points.length < 2) { setStatus("Not enough points"); return; }
 
         const latlngs = points
-          .map(p => [Number(p.lat), Number(p.lon)])
-          .filter(x => Number.isFinite(x[0]) && Number.isFinite(x[1]));
+          .map(p => ({ lat: Number(p.lat), lng: Number(p.lon) }))
+          .filter(x => Number.isFinite(x.lat) && Number.isFinite(x.lng));
 
-        if (poly) map.removeLayer(poly);
-        poly = L.polyline(latlngs, { weight: 4 }).addTo(map);
+        if (latlngs.length < 2) { setStatus("Not enough valid points"); return; }
 
-        map.fitBounds(poly.getBounds(), { padding: [20, 20] });
+        drawPath(latlngs);
         setStatus(`Path drawn ✅ (#${sid}, ${latlngs.length} pts)`);
       } catch (e) {
         setStatus("Path fetch error ❌");
       }
-    }
-
-    function clearPath() {
-      if (poly) { map.removeLayer(poly); poly = null; }
-      setStatus("Cleared");
     }
 
     document.getElementById("setDevice").onclick = async () => {
@@ -197,10 +260,21 @@
     document.getElementById("drawPath").onclick = drawSelectedSession;
     document.getElementById("clearPath").onclick = clearPath;
 
-    // Live polling
-    fetchLatest();
-    loadSessions();
-    setInterval(fetchLatest, 1000);
+    // Boot
+    (async () => {
+      try {
+        setStatus("Loading Google Maps...");
+        await loadGoogleMaps();
+        initMap();
+        setStatus("Ready ✅");
+        fetchLatest();
+        loadSessions();
+        setInterval(fetchLatest, 1000);
+      } catch (e) {
+        console.error(e);
+        setStatus("Google Maps load error ❌");
+      }
+    })();
   </script>
 </body>
 </html>

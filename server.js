@@ -152,6 +152,15 @@ app.get("/api/health", async (req, res) => {
   }
 });
 
+// ===== Client config (expose Google Maps key to frontend) =====
+app.get("/config.js", (req, res) => {
+  const key = process.env.GOOGLE_MAP_API_KEY || "";
+  res.setHeader("Content-Type", "application/javascript; charset=utf-8");
+  // Note: this exposes the key to the browser (normal for Google Maps JS API).
+  res.end(`window.__CONFIG__ = ${JSON.stringify({ GOOGLE_MAP_API_KEY: key })};`);
+});
+
+
 // Start new session
 app.post("/api/sessions/start", async (req, res) => {
   const { deviceId, title } = req.body || {};
