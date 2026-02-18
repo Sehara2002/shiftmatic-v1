@@ -57,7 +57,7 @@ async function loadActiveSessionsIntoCache() {
 // =====================================================
 // MQTT SUBSCRIBER
 // =====================================================
-const MQTT_BROKER = process.env.MQTT_BROKER || "mqtt://broker.hivemq.com:1883";
+const MQTT_BROKER = process.env.MQTT_BROKER || "mqtt://35.182.195.177:1883";
 const MQTT_TOPIC_TELEMETRY =
   process.env.MQTT_TOPIC_TELEMETRY || "shiftmatic/test/esp32-001/telemetry";
 
