@@ -16,12 +16,11 @@
       --good:#22c55e;
       --bad:#ef4444;
       --warn:#f59e0b;
-      --accent:#60a5fa;
     }
     *{box-sizing:border-box}
     body{
       margin:0;
-      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, "Helvetica Neue";
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
       background: var(--bg);
       color: var(--text);
       overflow:hidden;
@@ -44,7 +43,7 @@
       gap:10px;
       margin-bottom:10px;
     }
-    .title h1{font-size:16px; margin:0; letter-spacing:.3px}
+    .title h1{font-size:16px; margin:0}
     .badge{
       font-size:12px;
       padding:6px 10px;
@@ -61,7 +60,6 @@
       margin-bottom:12px;
       box-shadow: 0 10px 30px rgba(0,0,0,.25);
     }
-    .row{display:flex; gap:10px; align-items:center; flex-wrap:wrap}
     input, select, button{
       width:100%;
       padding:10px 12px;
@@ -74,18 +72,17 @@
     button{
       cursor:pointer;
       font-weight:600;
-      background: rgba(96,165,250,.14);
-      border-color: rgba(96,165,250,.35);
+      background: rgba(255,255,255,.06);
     }
     button:hover{ filter: brightness(1.08); }
-    .btnRow{
-      display:grid;
-      grid-template-columns: 1fr 1fr;
-      gap:10px;
-    }
     .btnRow3{
       display:grid;
       grid-template-columns: 1fr 1fr 1fr;
+      gap:10px;
+    }
+    .btnRow2{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
       gap:10px;
     }
     .kv{
@@ -98,16 +95,14 @@
     }
     .kv:last-child{border-bottom:none}
     .k{color: var(--muted)}
-    .v{font-variant-numeric: tabular-nums; }
+    .v{font-variant-numeric: tabular-nums;}
     .dot{
-      width:10px; height:10px; border-radius:999px;
-      display:inline-block;
-      margin-right:8px;
+      width:10px;height:10px;border-radius:999px;display:inline-block;margin-right:8px;
       background: var(--warn);
       box-shadow: 0 0 0 3px rgba(245,158,11,.15);
     }
-    .dot.good{ background: var(--good); box-shadow: 0 0 0 3px rgba(34,197,94,.15);}
-    .dot.bad{ background: var(--bad); box-shadow: 0 0 0 3px rgba(239,68,68,.15);}
+    .dot.good{background:var(--good); box-shadow:0 0 0 3px rgba(34,197,94,.15);}
+    .dot.bad{background:var(--bad); box-shadow:0 0 0 3px rgba(239,68,68,.15);}
     .small{font-size:12px;color:var(--muted)}
     #map{ width:100%; height:100vh; }
   </style>
@@ -123,31 +118,29 @@
 
       <div class="card">
         <div class="small">Device</div>
-        <div class="row" style="margin-top:8px">
-          <input id="device" value="ESP32-001" />
-          <button id="setDevice">Set Device</button>
-        </div>
+        <input id="device" value="ESP32-001" style="margin-top:8px"/>
+        <button id="setDevice" style="margin-top:10px">Set Device</button>
         <div class="small" style="margin-top:10px">
-          Live marker updates every 1s. Health updates every 2s.
+          Live updates: telemetry 1s, status 2s
         </div>
       </div>
 
       <div class="card">
-        <div class="small">Live</div>
+        <div class="small">Live Telemetry</div>
         <div class="kv"><div class="k">Telemetry</div><div class="v" id="teleLive">-</div></div>
         <div class="kv"><div class="k">Lat</div><div class="v" id="lat">-</div></div>
         <div class="kv"><div class="k">Lon</div><div class="v" id="lon">-</div></div>
         <div class="kv"><div class="k">Telemetry age (s)</div><div class="v" id="ageTele">-</div></div>
-        <div class="kv"><div class="k">Session (from latest)</div><div class="v" id="sidLive">-</div></div>
+        <div class="kv"><div class="k">Session (latest)</div><div class="v" id="sidLive">-</div></div>
       </div>
 
       <div class="card">
         <div class="small">Device Health</div>
-        <div class="kv"><div class="k">GPS</div><div class="v" id="gpsAlive">-</div></div>
+        <div class="kv"><div class="k">GPS alive</div><div class="v" id="gpsAlive">-</div></div>
         <div class="kv"><div class="k">Sats / HDOP</div><div class="v" id="gpsQual">-</div></div>
         <div class="kv"><div class="k">Speed</div><div class="v" id="gpsSpd">-</div></div>
 
-        <div class="kv"><div class="k">GSM Network</div><div class="v" id="gsmNet">-</div></div>
+        <div class="kv"><div class="k">Network</div><div class="v" id="gsmNet">-</div></div>
         <div class="kv"><div class="k">GPRS</div><div class="v" id="gsmGprs">-</div></div>
         <div class="kv"><div class="k">Signal CSQ / dBm</div><div class="v" id="gsmSig">-</div></div>
 
@@ -169,25 +162,21 @@
           <option value="">(select a session)</option>
         </select>
 
-        <div class="btnRow" style="margin-top:10px">
+        <div class="btnRow2" style="margin-top:10px">
           <button id="drawPath">Draw</button>
           <button id="clearPath">Clear</button>
         </div>
-
-        <div class="small" style="margin-top:10px" id="sessionInfo">-</div>
       </div>
     </div>
 
     <div id="map"></div>
   </div>
 
-  <!-- Loads window.__CONFIG__ = { GOOGLE_MAP_API_KEY: "..." } -->
   <script src="/config.js"></script>
 
   <script>
     const BASE_URL = "";
     let DEVICE_ID = "ESP32-001";
-    let ACTIVE_SESSION_ID = null;
 
     const uiStatus = document.getElementById("uiStatus");
     const elLat = document.getElementById("lat");
@@ -209,7 +198,6 @@
 
     const elDevice = document.getElementById("device");
     const elSessionSelect = document.getElementById("sessionSelect");
-    const elSessionInfo = document.getElementById("sessionInfo");
 
     function pillDot(ok){
       return `<span class="dot ${ok ? "good":"bad"}"></span>${ok ? "OK" : "FAIL"}`;
@@ -218,7 +206,7 @@
       return `<span class="dot"></span>${txt}`;
     }
 
-    // ===================== GOOGLE MAPS =====================
+    // Google Maps
     let map, marker, polyline;
 
     function loadGoogleMaps() {
@@ -249,17 +237,12 @@
         mapTypeControl: false,
       });
 
-      marker = new google.maps.Marker({
-        position: startLatLng,
-        map,
-        title: "Live Position",
-      });
+      marker = new google.maps.Marker({ position: startLatLng, map, title: "Live Position" });
     }
 
     function setMarker(lat, lon) {
       if (!map || !marker) return;
-      const pos = { lat: Number(lat), lng: Number(lon) };
-      marker.setPosition(pos);
+      marker.setPosition({ lat: Number(lat), lng: Number(lon) });
     }
 
     function clearPath() {
@@ -273,10 +256,7 @@
     function drawPath(latlngs) {
       if (!map) return;
 
-      if (polyline) {
-        polyline.setMap(null);
-        polyline = null;
-      }
+      if (polyline) polyline.setMap(null);
 
       polyline = new google.maps.Polyline({
         path: latlngs,
@@ -284,14 +264,12 @@
         strokeOpacity: 1.0,
         strokeWeight: 4,
       });
-
       polyline.setMap(map);
 
       const bounds = new google.maps.LatLngBounds();
       for (const p of latlngs) bounds.extend(p);
       map.fitBounds(bounds, 40);
     }
-    // ======================================================
 
     async function fetchLatest() {
       try {
@@ -300,7 +278,6 @@
           elTeleLive.innerHTML = warnDot("No telemetry");
           return;
         }
-
         const data = await res.json();
         const latest = data.latest;
 
@@ -313,7 +290,7 @@
         elTeleLive.innerHTML = pillDot(online);
 
         setMarker(latest.lat, latest.lon);
-      } catch (e) {
+      } catch {
         elTeleLive.innerHTML = warnDot("Telemetry error");
       }
     }
@@ -322,42 +299,36 @@
       try {
         const res = await fetch(`${BASE_URL}/api/device-status?deviceId=${encodeURIComponent(DEVICE_ID)}`, { cache: "no-store" });
         if (!res.ok) {
-          elGpsAlive.innerHTML = warnDot("No status yet");
-          elAgeStatus.textContent = "-";
+          uiStatus.textContent = "No status yet (waiting…)";
+          elGpsAlive.innerHTML = warnDot("No status");
           return;
         }
+
         const data = await res.json();
         const st = data.status || {};
         const ageS = data.ageSeconds ?? null;
 
-        // online if status within 15s
         const online = (ageS != null && ageS <= 15);
         uiStatus.textContent = online ? "Device online ✅" : "Device offline ⚠️";
 
         const gpsOk = Number(st.gps) === 1 && Number(st.age ?? 999999) < 5000;
         elGpsAlive.innerHTML = pillDot(gpsOk);
 
-        const sats = st.sa ?? "-";
-        const hdop = st.hd ?? "-";
-        elGpsQual.textContent = `${sats} / ${hdop}`;
-
+        elGpsQual.textContent = `${st.sa ?? "-"} / ${st.hd ?? "-"}`;
         elGpsSpd.textContent = `${Number(st.sp ?? 0).toFixed(2)} m/s`;
 
         elGsmNet.innerHTML = pillDot(Number(st.net) === 1);
         elGsmGprs.innerHTML = pillDot(Number(st.gprs) === 1);
-
-        const csq = st.csq ?? "-";
-        const dbm = st.dbm ?? "-";
-        elGsmSig.textContent = `${csq} / ${dbm} dBm`;
+        elGsmSig.textContent = `${st.csq ?? "-"} / ${st.dbm ?? "-"} dBm`;
 
         elMqAlive.innerHTML = pillDot(Number(st.mq) === 1);
-        elDevMeta.textContent = `${st.heap ?? "-"} bytes / ${st.up ?? "-"}s`;
 
+        elDevMeta.textContent = `${st.heap ?? "-"} bytes / ${st.up ?? "-"}s`;
         elAgeStatus.textContent = ageS ?? "-";
 
-        const pub = (Number(st.pok) === 1) ? "Telemetry publish OK" : "Telemetry publish FAIL";
+        const pub = (Number(st.pok) === 1) ? "Telemetry OK" : "Telemetry FAIL";
         elPubOk.textContent = `${pub} (len=${st.pl ?? "-"})`;
-      } catch (e) {
+      } catch {
         uiStatus.textContent = "Status fetch error ❌";
       }
     }
@@ -366,68 +337,45 @@
       uiStatus.textContent = "Loading sessions…";
       elSessionSelect.innerHTML = `<option value="">(select a session)</option>`;
 
-      try {
-        const res = await fetch(`${BASE_URL}/api/sessions?deviceId=${encodeURIComponent(DEVICE_ID)}`, { cache: "no-store" });
-        if (!res.ok) { uiStatus.textContent = "Session load error"; return; }
+      const res = await fetch(`${BASE_URL}/api/sessions?deviceId=${encodeURIComponent(DEVICE_ID)}`, { cache: "no-store" });
+      const data = await res.json();
+      if (!res.ok) { uiStatus.textContent = data.error || "Session load failed"; return; }
 
-        const data = await res.json();
-        ACTIVE_SESSION_ID = data.activeSessionId;
-
-        const sessions = data.sessions || [];
-        for (const s of sessions) {
-          const opt = document.createElement("option");
-          opt.value = s.id;
-          const start = new Date(s.started_at).toLocaleString();
-          const end = s.ended_at ? new Date(s.ended_at).toLocaleString() : "ACTIVE";
-          opt.textContent = `#${s.id} | ${start} -> ${end}${s.is_active ? " ✅" : ""}`;
-          elSessionSelect.appendChild(opt);
-        }
-
-        elSessionInfo.textContent = ACTIVE_SESSION_ID ? `Active session: #${ACTIVE_SESSION_ID}` : "No active session";
-        uiStatus.textContent = "Sessions loaded ✅";
-      } catch (e) {
-        uiStatus.textContent = "Session fetch error ❌";
+      for (const s of (data.sessions || [])) {
+        const opt = document.createElement("option");
+        opt.value = s.id;
+        const start = new Date(s.started_at).toLocaleString();
+        const end = s.ended_at ? new Date(s.ended_at).toLocaleString() : "ACTIVE";
+        opt.textContent = `#${s.id} | ${start} -> ${end}${s.is_active ? " ✅" : ""}`;
+        elSessionSelect.appendChild(opt);
       }
+      uiStatus.textContent = "Sessions loaded ✅";
     }
 
     async function startSession() {
       uiStatus.textContent = "Starting session…";
-      try {
-        const res = await fetch(`${BASE_URL}/api/sessions/start`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ deviceId: DEVICE_ID, title: null })
-        });
-
-        const data = await res.json();
-        if (!res.ok) { uiStatus.textContent = data.error || "Start failed"; return; }
-
-        ACTIVE_SESSION_ID = data.session.id;
-        uiStatus.textContent = `Session started ✅ (#${ACTIVE_SESSION_ID})`;
-        await loadSessions();
-      } catch (e) {
-        uiStatus.textContent = "Start error ❌";
-      }
+      const res = await fetch(`${BASE_URL}/api/sessions/start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deviceId: DEVICE_ID, title: null })
+      });
+      const data = await res.json();
+      if (!res.ok) { uiStatus.textContent = data.error || "Start failed"; return; }
+      uiStatus.textContent = `Session started ✅ (#${data.session.id})`;
+      await loadSessions();
     }
 
     async function stopSession() {
       uiStatus.textContent = "Stopping session…";
-      try {
-        const res = await fetch(`${BASE_URL}/api/sessions/stop`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ deviceId: DEVICE_ID })
-        });
-
-        const data = await res.json();
-        if (!res.ok) { uiStatus.textContent = data.error || "Stop failed"; return; }
-
-        ACTIVE_SESSION_ID = null;
-        uiStatus.textContent = `Session stopped ✅`;
-        await loadSessions();
-      } catch (e) {
-        uiStatus.textContent = "Stop error ❌";
-      }
+      const res = await fetch(`${BASE_URL}/api/sessions/stop`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deviceId: DEVICE_ID })
+      });
+      const data = await res.json();
+      if (!res.ok) { uiStatus.textContent = data.error || "Stop failed"; return; }
+      uiStatus.textContent = "Session stopped ✅";
+      await loadSessions();
     }
 
     async function drawSelectedSession() {
@@ -435,25 +383,18 @@
       if (!sid) { uiStatus.textContent = "Select a session first"; return; }
 
       uiStatus.textContent = `Loading session #${sid}…`;
-      try {
-        const res = await fetch(`${BASE_URL}/api/session-history?sessionId=${sid}&limit=20000`, { cache: "no-store" });
-        if (!res.ok) { uiStatus.textContent = "History error"; return; }
+      const res = await fetch(`${BASE_URL}/api/session-history?sessionId=${sid}&limit=20000`, { cache: "no-store" });
+      const data = await res.json();
+      if (!res.ok) { uiStatus.textContent = data.error || "History failed"; return; }
 
-        const data = await res.json();
-        const points = data.points || [];
-        if (points.length < 2) { uiStatus.textContent = "Not enough points"; return; }
+      const latlngs = (data.points || [])
+        .map(p => ({ lat: Number(p.lat), lng: Number(p.lon) }))
+        .filter(p => Number.isFinite(p.lat) && Number.isFinite(p.lng));
 
-        const latlngs = points
-          .map(p => ({ lat: Number(p.lat), lng: Number(p.lon) }))
-          .filter(x => Number.isFinite(x.lat) && Number.isFinite(x.lng));
+      if (latlngs.length < 2) { uiStatus.textContent = "Not enough points"; return; }
 
-        if (latlngs.length < 2) { uiStatus.textContent = "Not enough valid points"; return; }
-
-        drawPath(latlngs);
-        uiStatus.textContent = `Path drawn ✅ (#${sid}, ${latlngs.length} pts)`;
-      } catch (e) {
-        uiStatus.textContent = "Path fetch error ❌";
-      }
+      drawPath(latlngs);
+      uiStatus.textContent = `Path drawn ✅ (#${sid}, ${latlngs.length} pts)`;
     }
 
     document.getElementById("setDevice").onclick = async () => {
