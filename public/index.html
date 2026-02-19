@@ -3,58 +3,220 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>Vehicle Tracker - Sessions</title>
+  <title>Vehicle Tracker</title>
 
   <style>
-    body { margin: 0; font-family: Arial, sans-serif; }
-    #top { padding: 10px; background:#f6f6f6; border-bottom:1px solid #ddd; display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
-    #map { height: calc(100vh - 80px); }
-    .pill { padding: 6px 10px; border: 1px solid #ddd; background:#fff; border-radius: 999px; font-size: 13px; }
-    button { padding: 8px 12px; border-radius: 8px; border: 1px solid #333; background: #fff; cursor:pointer; }
-    input, select { padding: 8px 10px; border: 1px solid #bbb; border-radius: 8px; }
+    :root{
+      --bg:#0b1220;
+      --panel:#0f1a30;
+      --panel2:#0c162a;
+      --text:#e6eefc;
+      --muted:#9db0d0;
+      --border:rgba(255,255,255,.08);
+      --good:#22c55e;
+      --bad:#ef4444;
+      --warn:#f59e0b;
+      --accent:#60a5fa;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, "Helvetica Neue";
+      background: var(--bg);
+      color: var(--text);
+      overflow:hidden;
+    }
+    .app{
+      height:100vh;
+      display:grid;
+      grid-template-columns: 380px 1fr;
+    }
+    .left{
+      border-right:1px solid var(--border);
+      background: linear-gradient(180deg, var(--panel), var(--panel2));
+      padding:14px;
+      overflow:auto;
+    }
+    .title{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      margin-bottom:10px;
+    }
+    .title h1{font-size:16px; margin:0; letter-spacing:.3px}
+    .badge{
+      font-size:12px;
+      padding:6px 10px;
+      border-radius:999px;
+      border:1px solid var(--border);
+      color: var(--muted);
+      background: rgba(255,255,255,.03);
+    }
+    .card{
+      border:1px solid var(--border);
+      background: rgba(255,255,255,.03);
+      border-radius:16px;
+      padding:12px;
+      margin-bottom:12px;
+      box-shadow: 0 10px 30px rgba(0,0,0,.25);
+    }
+    .row{display:flex; gap:10px; align-items:center; flex-wrap:wrap}
+    input, select, button{
+      width:100%;
+      padding:10px 12px;
+      border-radius:12px;
+      border:1px solid var(--border);
+      background: rgba(255,255,255,.04);
+      color: var(--text);
+      outline:none;
+    }
+    button{
+      cursor:pointer;
+      font-weight:600;
+      background: rgba(96,165,250,.14);
+      border-color: rgba(96,165,250,.35);
+    }
+    button:hover{ filter: brightness(1.08); }
+    .btnRow{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap:10px;
+    }
+    .btnRow3{
+      display:grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap:10px;
+    }
+    .kv{
+      display:grid;
+      grid-template-columns: 1fr auto;
+      gap:10px;
+      padding:8px 0;
+      border-bottom:1px dashed rgba(255,255,255,.10);
+      font-size:13px;
+    }
+    .kv:last-child{border-bottom:none}
+    .k{color: var(--muted)}
+    .v{font-variant-numeric: tabular-nums; }
+    .dot{
+      width:10px; height:10px; border-radius:999px;
+      display:inline-block;
+      margin-right:8px;
+      background: var(--warn);
+      box-shadow: 0 0 0 3px rgba(245,158,11,.15);
+    }
+    .dot.good{ background: var(--good); box-shadow: 0 0 0 3px rgba(34,197,94,.15);}
+    .dot.bad{ background: var(--bad); box-shadow: 0 0 0 3px rgba(239,68,68,.15);}
+    .small{font-size:12px;color:var(--muted)}
+    #map{ width:100%; height:100vh; }
   </style>
 </head>
 
 <body>
-  <div id="top">
-    <div class="pill"><b>Status:</b> <span id="status">Starting...</span></div>
-    <div class="pill"><b>Lat:</b> <span id="lat">-</span></div>
-    <div class="pill"><b>Lon:</b> <span id="lon">-</span></div>
-    <div class="pill"><b>Age(s):</b> <span id="age">-</span></div>
+  <div class="app">
+    <div class="left">
+      <div class="title">
+        <h1>Vehicle Tracker</h1>
+        <div class="badge" id="uiStatus">Booting…</div>
+      </div>
 
-    <input id="device" value="ESP32-001" />
-    <button id="setDevice">Set Device</button>
+      <div class="card">
+        <div class="small">Device</div>
+        <div class="row" style="margin-top:8px">
+          <input id="device" value="ESP32-001" />
+          <button id="setDevice">Set Device</button>
+        </div>
+        <div class="small" style="margin-top:10px">
+          Live marker updates every 1s. Health updates every 2s.
+        </div>
+      </div>
 
-    <button id="loadSessions">Load Sessions</button>
-    <button id="startSession">Start Session</button>
-    <button id="stopSession">Stop Session</button>
+      <div class="card">
+        <div class="small">Live</div>
+        <div class="kv"><div class="k">Telemetry</div><div class="v" id="teleLive">-</div></div>
+        <div class="kv"><div class="k">Lat</div><div class="v" id="lat">-</div></div>
+        <div class="kv"><div class="k">Lon</div><div class="v" id="lon">-</div></div>
+        <div class="kv"><div class="k">Telemetry age (s)</div><div class="v" id="ageTele">-</div></div>
+        <div class="kv"><div class="k">Session (from latest)</div><div class="v" id="sidLive">-</div></div>
+      </div>
 
-    <select id="sessionSelect" style="min-width:280px">
-      <option value="">(select a session)</option>
-    </select>
+      <div class="card">
+        <div class="small">Device Health</div>
+        <div class="kv"><div class="k">GPS</div><div class="v" id="gpsAlive">-</div></div>
+        <div class="kv"><div class="k">Sats / HDOP</div><div class="v" id="gpsQual">-</div></div>
+        <div class="kv"><div class="k">Speed</div><div class="v" id="gpsSpd">-</div></div>
 
-    <button id="drawPath">Draw Selected Session</button>
-    <button id="clearPath">Clear Path</button>
+        <div class="kv"><div class="k">GSM Network</div><div class="v" id="gsmNet">-</div></div>
+        <div class="kv"><div class="k">GPRS</div><div class="v" id="gsmGprs">-</div></div>
+        <div class="kv"><div class="k">Signal CSQ / dBm</div><div class="v" id="gsmSig">-</div></div>
+
+        <div class="kv"><div class="k">MQTT</div><div class="v" id="mqAlive">-</div></div>
+        <div class="kv"><div class="k">Heap / Uptime</div><div class="v" id="devMeta">-</div></div>
+        <div class="kv"><div class="k">Status age (s)</div><div class="v" id="ageStatus">-</div></div>
+        <div class="kv"><div class="k">Last publish</div><div class="v" id="pubOk">-</div></div>
+      </div>
+
+      <div class="card">
+        <div class="small">Sessions</div>
+        <div class="btnRow3" style="margin-top:10px">
+          <button id="loadSessions">Load</button>
+          <button id="startSession">Start</button>
+          <button id="stopSession">Stop</button>
+        </div>
+
+        <select id="sessionSelect" style="margin-top:10px">
+          <option value="">(select a session)</option>
+        </select>
+
+        <div class="btnRow" style="margin-top:10px">
+          <button id="drawPath">Draw</button>
+          <button id="clearPath">Clear</button>
+        </div>
+
+        <div class="small" style="margin-top:10px" id="sessionInfo">-</div>
+      </div>
+    </div>
+
+    <div id="map"></div>
   </div>
-
-  <div id="map"></div>
 
   <!-- Loads window.__CONFIG__ = { GOOGLE_MAP_API_KEY: "..." } -->
   <script src="/config.js"></script>
 
   <script>
-    const BASE_URL = ""; // same origin
+    const BASE_URL = "";
     let DEVICE_ID = "ESP32-001";
     let ACTIVE_SESSION_ID = null;
 
-    const elStatus = document.getElementById("status");
+    const uiStatus = document.getElementById("uiStatus");
     const elLat = document.getElementById("lat");
     const elLon = document.getElementById("lon");
-    const elAge = document.getElementById("age");
+    const elAgeTele = document.getElementById("ageTele");
+    const elSidLive = document.getElementById("sidLive");
+    const elTeleLive = document.getElementById("teleLive");
+
+    const elGpsAlive = document.getElementById("gpsAlive");
+    const elGpsQual  = document.getElementById("gpsQual");
+    const elGpsSpd   = document.getElementById("gpsSpd");
+    const elGsmNet   = document.getElementById("gsmNet");
+    const elGsmGprs  = document.getElementById("gsmGprs");
+    const elGsmSig   = document.getElementById("gsmSig");
+    const elMqAlive  = document.getElementById("mqAlive");
+    const elDevMeta  = document.getElementById("devMeta");
+    const elAgeStatus= document.getElementById("ageStatus");
+    const elPubOk    = document.getElementById("pubOk");
+
     const elDevice = document.getElementById("device");
     const elSessionSelect = document.getElementById("sessionSelect");
+    const elSessionInfo = document.getElementById("sessionInfo");
 
-    function setStatus(s) { elStatus.textContent = s; }
+    function pillDot(ok){
+      return `<span class="dot ${ok ? "good":"bad"}"></span>${ok ? "OK" : "FAIL"}`;
+    }
+    function warnDot(txt){
+      return `<span class="dot"></span>${txt}`;
+    }
 
     // ===================== GOOGLE MAPS =====================
     let map, marker, polyline;
@@ -78,11 +240,13 @@
 
     function initMap() {
       const startLatLng = { lat: 6.9271, lng: 79.8612 };
-
       map = new google.maps.Map(document.getElementById("map"), {
         center: startLatLng,
         zoom: 13,
         mapTypeId: "roadmap",
+        fullscreenControl: false,
+        streetViewControl: false,
+        mapTypeControl: false,
       });
 
       marker = new google.maps.Marker({
@@ -90,16 +254,12 @@
         map,
         title: "Live Position",
       });
-
-      polyline = null;
     }
 
     function setMarker(lat, lon) {
       if (!map || !marker) return;
       const pos = { lat: Number(lat), lng: Number(lon) };
       marker.setPosition(pos);
-      // Optional: keep the marker in view without constantly recentering
-      // map.panTo(pos);
     }
 
     function clearPath() {
@@ -107,7 +267,7 @@
         polyline.setMap(null);
         polyline = null;
       }
-      setStatus("Cleared");
+      uiStatus.textContent = "Path cleared";
     }
 
     function drawPath(latlngs) {
@@ -119,7 +279,7 @@
       }
 
       polyline = new google.maps.Polyline({
-        path: latlngs, // [{lat, lng}, ...]
+        path: latlngs,
         geodesic: true,
         strokeOpacity: 1.0,
         strokeWeight: 4,
@@ -127,39 +287,88 @@
 
       polyline.setMap(map);
 
-      // Fit bounds
       const bounds = new google.maps.LatLngBounds();
       for (const p of latlngs) bounds.extend(p);
-      map.fitBounds(bounds, 20); // padding-ish
+      map.fitBounds(bounds, 40);
     }
     // ======================================================
 
     async function fetchLatest() {
       try {
         const res = await fetch(`${BASE_URL}/api/latest?deviceId=${encodeURIComponent(DEVICE_ID)}`, { cache: "no-store" });
-        if (!res.ok) { setStatus("No data"); return; }
+        if (!res.ok) {
+          elTeleLive.innerHTML = warnDot("No telemetry");
+          return;
+        }
 
         const data = await res.json();
         const latest = data.latest;
 
         elLat.textContent = Number(latest.lat).toFixed(6);
         elLon.textContent = Number(latest.lon).toFixed(6);
-        elAge.textContent = data.ageSeconds ?? "-";
+        elAgeTele.textContent = data.ageSeconds ?? "-";
+        elSidLive.textContent = latest.session_id ?? "-";
+
+        const online = (data.ageSeconds != null && data.ageSeconds <= 10);
+        elTeleLive.innerHTML = pillDot(online);
 
         setMarker(latest.lat, latest.lon);
-        setStatus(`Live ✅ (sid=${latest.session_id ?? "-"})`);
       } catch (e) {
-        setStatus("Fetch error ❌");
+        elTeleLive.innerHTML = warnDot("Telemetry error");
+      }
+    }
+
+    async function fetchDeviceStatus() {
+      try {
+        const res = await fetch(`${BASE_URL}/api/device-status?deviceId=${encodeURIComponent(DEVICE_ID)}`, { cache: "no-store" });
+        if (!res.ok) {
+          elGpsAlive.innerHTML = warnDot("No status yet");
+          elAgeStatus.textContent = "-";
+          return;
+        }
+        const data = await res.json();
+        const st = data.status || {};
+        const ageS = data.ageSeconds ?? null;
+
+        // online if status within 15s
+        const online = (ageS != null && ageS <= 15);
+        uiStatus.textContent = online ? "Device online ✅" : "Device offline ⚠️";
+
+        const gpsOk = Number(st.gps) === 1 && Number(st.age ?? 999999) < 5000;
+        elGpsAlive.innerHTML = pillDot(gpsOk);
+
+        const sats = st.sa ?? "-";
+        const hdop = st.hd ?? "-";
+        elGpsQual.textContent = `${sats} / ${hdop}`;
+
+        elGpsSpd.textContent = `${Number(st.sp ?? 0).toFixed(2)} m/s`;
+
+        elGsmNet.innerHTML = pillDot(Number(st.net) === 1);
+        elGsmGprs.innerHTML = pillDot(Number(st.gprs) === 1);
+
+        const csq = st.csq ?? "-";
+        const dbm = st.dbm ?? "-";
+        elGsmSig.textContent = `${csq} / ${dbm} dBm`;
+
+        elMqAlive.innerHTML = pillDot(Number(st.mq) === 1);
+        elDevMeta.textContent = `${st.heap ?? "-"} bytes / ${st.up ?? "-"}s`;
+
+        elAgeStatus.textContent = ageS ?? "-";
+
+        const pub = (Number(st.pok) === 1) ? "Telemetry publish OK" : "Telemetry publish FAIL";
+        elPubOk.textContent = `${pub} (len=${st.pl ?? "-"})`;
+      } catch (e) {
+        uiStatus.textContent = "Status fetch error ❌";
       }
     }
 
     async function loadSessions() {
-      setStatus("Loading sessions...");
+      uiStatus.textContent = "Loading sessions…";
       elSessionSelect.innerHTML = `<option value="">(select a session)</option>`;
 
       try {
         const res = await fetch(`${BASE_URL}/api/sessions?deviceId=${encodeURIComponent(DEVICE_ID)}`, { cache: "no-store" });
-        if (!res.ok) { setStatus("Session load error"); return; }
+        if (!res.ok) { uiStatus.textContent = "Session load error"; return; }
 
         const data = await res.json();
         ACTIVE_SESSION_ID = data.activeSessionId;
@@ -174,15 +383,15 @@
           elSessionSelect.appendChild(opt);
         }
 
-        if (ACTIVE_SESSION_ID) setStatus(`Sessions loaded ✅ (active #${ACTIVE_SESSION_ID})`);
-        else setStatus(`Sessions loaded ✅ (no active)`);
+        elSessionInfo.textContent = ACTIVE_SESSION_ID ? `Active session: #${ACTIVE_SESSION_ID}` : "No active session";
+        uiStatus.textContent = "Sessions loaded ✅";
       } catch (e) {
-        setStatus("Session fetch error ❌");
+        uiStatus.textContent = "Session fetch error ❌";
       }
     }
 
     async function startSession() {
-      setStatus("Starting session...");
+      uiStatus.textContent = "Starting session…";
       try {
         const res = await fetch(`${BASE_URL}/api/sessions/start`, {
           method: "POST",
@@ -191,18 +400,18 @@
         });
 
         const data = await res.json();
-        if (!res.ok) { setStatus(data.error || "Start failed"); return; }
+        if (!res.ok) { uiStatus.textContent = data.error || "Start failed"; return; }
 
         ACTIVE_SESSION_ID = data.session.id;
-        setStatus(`Session started ✅ (#${ACTIVE_SESSION_ID}) - device commanded`);
+        uiStatus.textContent = `Session started ✅ (#${ACTIVE_SESSION_ID})`;
         await loadSessions();
       } catch (e) {
-        setStatus("Start error ❌");
+        uiStatus.textContent = "Start error ❌";
       }
     }
 
     async function stopSession() {
-      setStatus("Stopping session...");
+      uiStatus.textContent = "Stopping session…";
       try {
         const res = await fetch(`${BASE_URL}/api/sessions/stop`, {
           method: "POST",
@@ -211,68 +420,72 @@
         });
 
         const data = await res.json();
-        if (!res.ok) { setStatus(data.error || "Stop failed"); return; }
+        if (!res.ok) { uiStatus.textContent = data.error || "Stop failed"; return; }
 
         ACTIVE_SESSION_ID = null;
-        setStatus(`Session stopped ✅ (device commanded)`);
+        uiStatus.textContent = `Session stopped ✅`;
         await loadSessions();
       } catch (e) {
-        setStatus("Stop error ❌");
+        uiStatus.textContent = "Stop error ❌";
       }
     }
 
     async function drawSelectedSession() {
       const sid = Number(elSessionSelect.value || 0);
-      if (!sid) { setStatus("Select a session first"); return; }
+      if (!sid) { uiStatus.textContent = "Select a session first"; return; }
 
-      setStatus(`Loading session #${sid}...`);
+      uiStatus.textContent = `Loading session #${sid}…`;
       try {
         const res = await fetch(`${BASE_URL}/api/session-history?sessionId=${sid}&limit=20000`, { cache: "no-store" });
-        if (!res.ok) { setStatus("History error"); return; }
+        if (!res.ok) { uiStatus.textContent = "History error"; return; }
 
         const data = await res.json();
         const points = data.points || [];
-        if (points.length < 2) { setStatus("Not enough points"); return; }
+        if (points.length < 2) { uiStatus.textContent = "Not enough points"; return; }
 
         const latlngs = points
           .map(p => ({ lat: Number(p.lat), lng: Number(p.lon) }))
           .filter(x => Number.isFinite(x.lat) && Number.isFinite(x.lng));
 
-        if (latlngs.length < 2) { setStatus("Not enough valid points"); return; }
+        if (latlngs.length < 2) { uiStatus.textContent = "Not enough valid points"; return; }
 
         drawPath(latlngs);
-        setStatus(`Path drawn ✅ (#${sid}, ${latlngs.length} pts)`);
+        uiStatus.textContent = `Path drawn ✅ (#${sid}, ${latlngs.length} pts)`;
       } catch (e) {
-        setStatus("Path fetch error ❌");
+        uiStatus.textContent = "Path fetch error ❌";
       }
     }
 
     document.getElementById("setDevice").onclick = async () => {
       DEVICE_ID = elDevice.value.trim() || DEVICE_ID;
-      setStatus(`Device = ${DEVICE_ID}`);
+      uiStatus.textContent = `Device = ${DEVICE_ID}`;
       await loadSessions();
+      await fetchLatest();
+      await fetchDeviceStatus();
     };
 
     document.getElementById("loadSessions").onclick = loadSessions;
     document.getElementById("startSession").onclick = startSession;
     document.getElementById("stopSession").onclick = stopSession;
-
     document.getElementById("drawPath").onclick = drawSelectedSession;
     document.getElementById("clearPath").onclick = clearPath;
 
-    // Boot
     (async () => {
       try {
-        setStatus("Loading Google Maps...");
+        uiStatus.textContent = "Loading Google Maps…";
         await loadGoogleMaps();
         initMap();
-        setStatus("Ready ✅");
-        fetchLatest();
-        loadSessions();
+        uiStatus.textContent = "Ready ✅";
+
+        await loadSessions();
+        await fetchLatest();
+        await fetchDeviceStatus();
+
         setInterval(fetchLatest, 1000);
+        setInterval(fetchDeviceStatus, 2000);
       } catch (e) {
         console.error(e);
-        setStatus("Google Maps load error ❌");
+        uiStatus.textContent = "Google Maps load error ❌";
       }
     })();
   </script>
