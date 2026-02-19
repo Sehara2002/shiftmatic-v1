@@ -15,24 +15,16 @@ const pool = new Pool({
 });
 
 // ===== CORS =====
-app.use(
-  cors({
-    origin: "*",
-    methods: ["GET", "POST", "OPTIONS"],
-    allowedHeaders: ["Content-Type"],
-  })
-);
-
+app.use(cors({ origin: "*", methods: ["GET", "POST", "OPTIONS"], allowedHeaders: ["Content-Type"] }));
 app.use(express.json({ limit: "50kb" }));
 
-// ===== Request Logger =====
+// ===== Logger =====
 app.use((req, res, next) => {
   const start = Date.now();
   res.on("finish", () => {
     const ms = Date.now() - start;
     const iso = new Date().toISOString();
-    const local = new Date().toLocaleString();
-    console.log(`[${iso}] [${local}] ${req.method} ${req.originalUrl} -> ${res.statusCode} (${ms}ms)`);
+    console.log(`[${iso}] ${req.method} ${req.originalUrl} -> ${res.statusCode} (${ms}ms)`);
   });
   next();
 });
@@ -41,27 +33,28 @@ app.use((req, res, next) => {
 app.use(express.static(path.join(__dirname, "public")));
 
 // =====================================================
-// In-memory cache
+// Caches
 // =====================================================
-const activeSessionByDevice = new Map(); // deviceId -> sessionId(number)
-const latestStatusByDevice = new Map();  // deviceId -> status payload + serverTs
+const activeSessionByDevice = new Map();   // deviceId -> sessionId
+const latestStatusByDevice = new Map();    // deviceId -> {status..., serverTs}
 const latestTelemetryByDevice = new Map(); // deviceId -> {lat,lon,sid,deviceTs,serverTs}
 
 async function loadActiveSessionsIntoCache() {
-  const { rows } = await pool.query(`SELECT id, device_id FROM sessions WHERE is_active = true`);
+  const { rows } = await pool.query(`SELECT id, device_id FROM sessions WHERE is_active=true`);
   activeSessionByDevice.clear();
   for (const r of rows) activeSessionByDevice.set(String(r.device_id), Number(r.id));
   console.log(`✅ Loaded active sessions: ${rows.length}`);
 }
 
 // =====================================================
-// MQTT SUBSCRIBER
+// MQTT
 // =====================================================
 const MQTT_BROKER = process.env.MQTT_BROKER || "mqtt://35.182.195.177:1883";
 
-// ✅ Subscribe ALL devices
-const MQTT_SUB_TELEMETRY = process.env.MQTT_SUB_TELEMETRY || "shiftmatic/test/+/telemetry";
-const MQTT_SUB_STATUS    = process.env.MQTT_SUB_STATUS    || "shiftmatic/test/+/status";
+// Your env var name is MQTT_TOPIC_TELEMETRY.
+// IMPORTANT: must be wildcard to match ESP32-001 (case changes)
+const MQTT_SUB_TELEMETRY = process.env.MQTT_TOPIC_TELEMETRY || "shiftmatic/test/+/telemetry";
+const MQTT_SUB_STATUS = MQTT_SUB_TELEMETRY.replace("/telemetry", "/status");
 
 const MQTT_CMD_TOPIC_PREFIX = process.env.MQTT_CMD_TOPIC_PREFIX || "shiftmatic/test";
 
@@ -75,13 +68,13 @@ mqttClient.on("connect", async () => {
   console.log("✅ MQTT connected:", MQTT_BROKER);
 
   mqttClient.subscribe(MQTT_SUB_TELEMETRY, { qos: 0 }, (err) => {
-    if (err) console.error("❌ MQTT subscribe telemetry error:", err);
-    else console.log("✅ MQTT subscribed telemetry:", MQTT_SUB_TELEMETRY);
+    if (err) console.error("❌ subscribe telemetry:", err.message);
+    else console.log("✅ subscribed telemetry:", MQTT_SUB_TELEMETRY);
   });
 
   mqttClient.subscribe(MQTT_SUB_STATUS, { qos: 0 }, (err) => {
-    if (err) console.error("❌ MQTT subscribe status error:", err);
-    else console.log("✅ MQTT subscribed status:", MQTT_SUB_STATUS);
+    if (err) console.error("❌ subscribe status:", err.message);
+    else console.log("✅ subscribed status:", MQTT_SUB_STATUS);
   });
 
   try {
@@ -109,29 +102,29 @@ async function insertCoordinate({ deviceId, sessionId, lat, lon, ts }) {
 }
 
 // =====================================================
-// MQTT message handler (supports your Arduino JSON)
+// MQTT message handler
 // =====================================================
 mqttClient.on("message", async (topic, message) => {
   const text = message.toString();
-
   let obj;
   try {
     obj = JSON.parse(text);
   } catch {
-    console.error("❌ MQTT bad JSON:", text);
+    console.error("❌ bad JSON:", text);
     return;
   }
 
-  // ---------- STATUS ----------
+  // STATUS
   if (topic.endsWith("/status")) {
     const deviceId = String(obj.deviceId ?? obj.id ?? "");
     if (!deviceId) return;
-
     latestStatusByDevice.set(deviceId, { ...obj, deviceId, serverTs: Date.now() });
+    // tiny log (don’t spam too much)
+    // console.log("📟 STATUS RX:", deviceId);
     return;
   }
 
-  // ---------- TELEMETRY ----------
+  // TELEMETRY
   if (topic.endsWith("/telemetry")) {
     const deviceId = String(obj.deviceId ?? obj.id ?? "");
     if (!deviceId) return;
@@ -141,31 +134,21 @@ mqttClient.on("message", async (topic, message) => {
     if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
 
     const sessionFromDevice = Number(obj.sessionId ?? obj.sid ?? 0);
-    let sid = Number.isFinite(sessionFromDevice) && sessionFromDevice > 0
-      ? sessionFromDevice
-      : (activeSessionByDevice.get(deviceId) || 0);
+    let sid =
+      Number.isFinite(sessionFromDevice) && sessionFromDevice > 0
+        ? sessionFromDevice
+        : activeSessionByDevice.get(deviceId) || 0;
 
     const deviceTs = Number(obj.ts ?? obj.t ?? 0) || null;
 
-    // cache latest telemetry for fast /api/latest
     latestTelemetryByDevice.set(deviceId, { lat, lon, sid: sid || null, deviceTs, serverTs: Date.now() });
 
-    if (!sid) {
-      console.log("ℹ️ Telemetry ignored (no active session):", { deviceId, lat, lon });
-      return;
-    }
+    if (!sid) return; // if no session, don’t store in DB
 
     try {
-      const row = await insertCoordinate({
-        deviceId,
-        sessionId: sid,
-        lat,
-        lon,
-        ts: deviceTs,
-      });
-      console.log("📩 MQTT SAVED:", row.id, row.device_id, row.session_id);
+      await insertCoordinate({ deviceId, sessionId: sid, lat, lon, ts: deviceTs });
     } catch (e) {
-      console.error("❌ DB insert failed:", e.message);
+      console.error("❌ DB insert:", e.message);
     }
   }
 });
@@ -173,25 +156,22 @@ mqttClient.on("message", async (topic, message) => {
 // =====================================================
 // API
 // =====================================================
-
-// Health
 app.get("/api/health", async (req, res) => {
   try {
     const r = await pool.query("SELECT NOW() as now");
-    res.json({ ok: true, status: "UP", now: Date.now(), dbNow: r.rows[0].now });
+    res.json({ ok: true, dbNow: r.rows[0].now, now: Date.now() });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
   }
 });
 
-// Client config
 app.get("/config.js", (req, res) => {
   const key = process.env.GOOGLE_MAP_API_KEY || "";
   res.setHeader("Content-Type", "application/javascript; charset=utf-8");
   res.end(`window.__CONFIG__ = ${JSON.stringify({ GOOGLE_MAP_API_KEY: key })};`);
 });
 
-// Latest telemetry (memory first, fallback DB)
+// Latest point
 app.get("/api/latest", async (req, res) => {
   const deviceId = String(req.query.deviceId || "");
   if (!deviceId) return res.status(400).json({ ok: false, error: "deviceId required" });
@@ -201,14 +181,7 @@ app.get("/api/latest", async (req, res) => {
     const ageSeconds = Math.floor((Date.now() - Number(mem.serverTs)) / 1000);
     return res.json({
       ok: true,
-      latest: {
-        device_id: deviceId,
-        session_id: mem.sid,
-        lat: mem.lat,
-        lon: mem.lon,
-        device_ts: mem.deviceTs,
-        server_ts: mem.serverTs,
-      },
+      latest: { device_id: deviceId, session_id: mem.sid, lat: mem.lat, lon: mem.lon, device_ts: mem.deviceTs, server_ts: mem.serverTs },
       ageSeconds,
       source: "memory",
     });
@@ -216,15 +189,10 @@ app.get("/api/latest", async (req, res) => {
 
   try {
     const { rows } = await pool.query(
-      `SELECT c.*
-       FROM coordinates c
-       WHERE c.device_id=$1
-       ORDER BY c.created_at DESC
-       LIMIT 1`,
+      `SELECT * FROM coordinates WHERE device_id=$1 ORDER BY created_at DESC LIMIT 1`,
       [deviceId]
     );
-
-    if (!rows.length) return res.status(404).json({ ok: false, error: "no data for device" });
+    if (!rows.length) return res.status(404).json({ ok: false, error: "no data" });
 
     const latest = rows[0];
     const ageSeconds = Math.floor((Date.now() - Number(latest.server_ts)) / 1000);
@@ -234,19 +202,19 @@ app.get("/api/latest", async (req, res) => {
   }
 });
 
-// ✅ Device status (from MQTT status cache)
+// ✅ IMPORTANT: always return 200 so your UI never spams 404
 app.get("/api/device-status", (req, res) => {
   const deviceId = String(req.query.deviceId || "");
-  if (!deviceId) return res.status(400).json({ ok: false, error: "deviceId required" });
+  if (!deviceId) return res.status(200).json({ ok: false, error: "deviceId required" });
 
   const st = latestStatusByDevice.get(deviceId);
-  if (!st) return res.status(404).json({ ok: false, error: "no status yet" });
+  if (!st) return res.status(200).json({ ok: false, deviceId, error: "no status yet" });
 
   const ageSeconds = Math.floor((Date.now() - Number(st.serverTs)) / 1000);
-  res.json({ ok: true, deviceId, status: st, ageSeconds });
+  return res.status(200).json({ ok: true, deviceId, status: st, ageSeconds });
 });
 
-// Start new session
+// Sessions
 app.post("/api/sessions/start", async (req, res) => {
   const { deviceId, title } = req.body || {};
   if (!deviceId) return res.status(400).json({ ok: false, error: "deviceId required" });
@@ -254,11 +222,7 @@ app.post("/api/sessions/start", async (req, res) => {
   const device = String(deviceId);
 
   try {
-    await pool.query(
-      `UPDATE sessions SET is_active=false, ended_at=NOW()
-       WHERE device_id=$1 AND is_active=true`,
-      [device]
-    );
+    await pool.query(`UPDATE sessions SET is_active=false, ended_at=NOW() WHERE device_id=$1 AND is_active=true`, [device]);
 
     const { rows } = await pool.query(
       `INSERT INTO sessions(device_id, title, is_active)
@@ -269,15 +233,10 @@ app.post("/api/sessions/start", async (req, res) => {
 
     const session = rows[0];
     const sessionId = Number(session.id);
-
     activeSessionByDevice.set(device, sessionId);
 
-    // publish START command to device
     const cmdTopic = `${MQTT_CMD_TOPIC_PREFIX}/${device}/cmd`;
-    const cmd = JSON.stringify({ cmd: "START", sessionId });
-    mqttClient.publish(cmdTopic, cmd);
-
-    console.log("▶️ SESSION START:", { device, sessionId, cmdTopic });
+    mqttClient.publish(cmdTopic, JSON.stringify({ cmd: "START", sessionId }));
 
     res.json({ ok: true, session, cmdTopic });
   } catch (e) {
@@ -285,7 +244,6 @@ app.post("/api/sessions/start", async (req, res) => {
   }
 });
 
-// Stop session
 app.post("/api/sessions/stop", async (req, res) => {
   const { deviceId } = req.body || {};
   if (!deviceId) return res.status(400).json({ ok: false, error: "deviceId required" });
@@ -297,31 +255,17 @@ app.post("/api/sessions/stop", async (req, res) => {
 
     const { rows: activeRows } = sid
       ? { rows: [{ id: sid }] }
-      : await pool.query(
-          `SELECT id FROM sessions WHERE device_id=$1 AND is_active=true ORDER BY started_at DESC LIMIT 1`,
-          [device]
-        );
+      : await pool.query(`SELECT id FROM sessions WHERE device_id=$1 AND is_active=true ORDER BY started_at DESC LIMIT 1`, [device]);
 
-    if (!activeRows.length) {
-      return res.status(404).json({ ok: false, error: "no active session" });
-    }
+    if (!activeRows.length) return res.status(404).json({ ok: false, error: "no active session" });
 
     const sessionId = Number(activeRows[0].id);
-
-    await pool.query(
-      `UPDATE sessions SET is_active=false, ended_at=NOW()
-       WHERE id=$1`,
-      [sessionId]
-    );
+    await pool.query(`UPDATE sessions SET is_active=false, ended_at=NOW() WHERE id=$1`, [sessionId]);
 
     activeSessionByDevice.delete(device);
 
-    // publish STOP command
     const cmdTopic = `${MQTT_CMD_TOPIC_PREFIX}/${device}/cmd`;
-    const cmd = JSON.stringify({ cmd: "STOP", sessionId });
-    mqttClient.publish(cmdTopic, cmd);
-
-    console.log("⏹️ SESSION STOP:", { device, sessionId, cmdTopic });
+    mqttClient.publish(cmdTopic, JSON.stringify({ cmd: "STOP", sessionId }));
 
     res.json({ ok: true, deviceId: device, sessionId, cmdTopic });
   } catch (e) {
@@ -329,7 +273,6 @@ app.post("/api/sessions/stop", async (req, res) => {
   }
 });
 
-// List sessions
 app.get("/api/sessions", async (req, res) => {
   const deviceId = String(req.query.deviceId || "");
   if (!deviceId) return res.status(400).json({ ok: false, error: "deviceId required" });
@@ -337,10 +280,8 @@ app.get("/api/sessions", async (req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT id, device_id, title, started_at, ended_at, is_active
-       FROM sessions
-       WHERE device_id=$1
-       ORDER BY started_at DESC
-       LIMIT 200`,
+       FROM sessions WHERE device_id=$1
+       ORDER BY started_at DESC LIMIT 200`,
       [deviceId]
     );
 
@@ -355,7 +296,6 @@ app.get("/api/sessions", async (req, res) => {
   }
 });
 
-// History by session
 app.get("/api/session-history", async (req, res) => {
   const sessionId = Number(req.query.sessionId || 0);
   const limit = Math.min(Number(req.query.limit || 5000), 20000);
@@ -374,48 +314,7 @@ app.get("/api/session-history", async (req, res) => {
       [sessionId, limit]
     );
 
-    res.json({
-      ok: true,
-      sessionId,
-      count: rows.length,
-      points: rows,
-      serverNow: Date.now(),
-      serverIso: new Date().toISOString(),
-    });
-  } catch (e) {
-    res.status(500).json({ ok: false, error: e.message });
-  }
-});
-
-// Optional HTTP telemetry (kept)
-app.post("/api/telemetry", async (req, res) => {
-  const { deviceId, lat, lon, ts, sessionId } = req.body || {};
-  if (!deviceId) return res.status(400).json({ ok: false, error: "deviceId required" });
-
-  const latNum = Number(lat);
-  const lonNum = Number(lon);
-  if (!Number.isFinite(latNum) || !Number.isFinite(lonNum)) {
-    return res.status(400).json({ ok: false, error: "lat/lon must be numbers" });
-  }
-
-  let sid = Number(sessionId);
-  if (!Number.isFinite(sid)) sid = activeSessionByDevice.get(String(deviceId)) || 0;
-
-  if (!sid) {
-    return res.status(409).json({ ok: false, error: "no active session" });
-  }
-
-  try {
-    const row = await insertCoordinate({
-      deviceId: String(deviceId),
-      sessionId: sid,
-      lat: latNum,
-      lon: lonNum,
-      ts: Number(ts) || null,
-    });
-
-    console.log("📩 HTTP SAVED:", row.id, row.device_id, row.session_id);
-    res.json({ ok: true, received: row });
+    res.json({ ok: true, sessionId, count: rows.length, points: rows });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
   }
@@ -431,8 +330,5 @@ app.post("/api/telemetry", async (req, res) => {
     console.error("❌ DB connect error:", e.message);
   }
 
-  app.listen(PORT, () => {
-    console.log(`✅ Express tracker running on http://localhost:${PORT}`);
-    console.log(`✅ Map UI: http://localhost:${PORT}/`);
-  });
+  app.listen(PORT, () => console.log(`✅ Express running on :${PORT}`));
 })();
