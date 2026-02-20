@@ -306,6 +306,13 @@
         const data = await res.json();
         const latest = data.latest;
 
+        console.log("Latest telemetry (parsed):", {
+          lat: Number(latest.lat),
+          lon: Number(latest.lon),
+          ageSeconds: data.ageSeconds,
+          session_id: latest.session_id,
+        });
+
         elLat.textContent = Number(latest.lat).toFixed(6);
         elLon.textContent = Number(latest.lon).toFixed(6);
         elAgeTele.textContent = data.ageSeconds ?? "-";
@@ -327,14 +334,21 @@ async function fetchDeviceStatus() {
       { cache: "no-store" }
     );
 
+    
+
     // server.js now returns 200 always. So read JSON always.
     let data = null;
     try {
       data = await res.json();
+
+      console.log("Device status (parsed):", data);
+
     } catch {
       // if server returned non-JSON for some reason
       uiStatus.textContent = "Status: bad response ❌";
       elGpsAlive.innerHTML = warnDot("Bad JSON");
+
+      console.error("Failed to parse device status JSON");
       return;
     }
 
