@@ -53,7 +53,7 @@ const MQTT_BROKER = process.env.MQTT_BROKER || "mqtt://35.182.195.177:1883";
 
 // Your env var name is MQTT_TOPIC_TELEMETRY.
 // IMPORTANT: must be wildcard to match ESP32-001 (case changes)
-const MQTT_SUB_TELEMETRY = process.env.MQTT_TOPIC_TELEMETRY || "shiftmatic/test/+/telemetry";
+const MQTT_SUB_TELEMETRY = process.env.MQTT_TOPIC_TELEMETRY || "shiftmatic/test/ESP32-001/telemetry";
 const MQTT_SUB_STATUS = MQTT_SUB_TELEMETRY.replace("/telemetry", "/status");
 
 const MQTT_CMD_TOPIC_PREFIX = process.env.MQTT_CMD_TOPIC_PREFIX || "shiftmatic/test";
